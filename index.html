@@ -211,6 +211,35 @@
   .meta-line { color: var(--ink-dim); font-size: 0.82rem; margin-top: 0.9rem; }
   .meta-line b { color: var(--ink-body); }
 
+  /* ---- Vimshottari Dasha ---- */
+  .dasha-section { margin-top: 2.8rem; max-width: 560px; }
+  .dasha-section h3 {
+    color: var(--title);
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 0.9rem;
+  }
+  .dasha-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin: 0 0 0.6rem;
+  }
+  .dasha-sub { color: var(--ink-dim); font-size: 0.85rem; }
+  .dasha-sub b { color: var(--ink-body); }
+  #dasaBack { font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+  #dasaTable { font-size: 0.8rem; }
+  #dasaTable th:nth-child(1), #dasaTable td:nth-child(1) { width: 7%; }
+  #dasaTable th:nth-child(2), #dasaTable td:nth-child(2) { width: 27%; }
+  #dasaTable th:nth-child(3), #dasaTable td:nth-child(3) { width: 14%; }
+  #dasaTable th:nth-child(4), #dasaTable td:nth-child(4) { width: 26%; }
+  #dasaTable th:nth-child(5), #dasaTable td:nth-child(5) { width: 26%; }
+  #dasaTable tbody tr.clickable { cursor: pointer; }
+  #dasaTable tbody tr.clickable:hover td { background: #f3f6fb; }
+  #dasaTable tbody tr.dasha-current td { background: var(--asc-bg); font-weight: 600; }
+  .dasha-note { color: var(--ink-dim); font-size: 0.78rem; margin-top: 0.55rem; }
+
   footer { color: var(--ink-dim); font-size: 0.8rem; margin-top: 2.5rem; }
 
   /* ---- Responsive ---- */
@@ -344,6 +373,30 @@
         <div class="meta-line" id="metaLine"></div>
       </div>
     </div>
+
+    <!-- ===== Vimshottari Dasha ===== -->
+    <div class="dasha-section">
+      <h3 data-i18n="dasaTitle">Viṁśottarī Daśā</h3>
+      <div class="dasha-head">
+        <div class="dasha-sub" id="dasaMeta"></div>
+        <a id="dasaBack"></a>
+      </div>
+      <div class="table-wrap">
+        <table id="dasaTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th data-i18n="colPlanet">Planeta</th>
+              <th class="num" data-i18n="colAge">Edad</th>
+              <th data-i18n="colStart">Inicio</th>
+              <th data-i18n="colEnd">Fin</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="dasha-note" id="dasaNote"></div>
+    </div>
   </div>
 
   <footer data-i18n="footer">
@@ -385,6 +438,18 @@ const TRANSLATIONS = {
     colSign:      "Signo",
     colLon:       "Longitud",
     colHouse:     "Casa",
+    dasaTitle:    "Viṁśottarī Daśā",
+    colPlanet:    "Planeta",
+    colAge:       "Edad",
+    colStart:     "Inicio",
+    colEnd:       "Fin",
+    dasaMoonIn:   "Luna en",
+    dasaLordLbl:  "señor",
+    dasaBack:     "← Mahādaśās",
+    dasaAdOf:     "Antardaśās de",
+    dasaHint:     "Haz clic en una mahādaśā para ver sus antardaśās.",
+    DASHA_NAMES: { Su:"Sol", Mo:"Luna", Ma:"Marte", Ra:"Rahu", Ju:"Júpiter",
+                   Sa:"Saturno", Me:"Mercurio", Ke:"Ketu", Ve:"Venus" },
     footer:       "Versión Beta · Cálculos con Swiss Ephemeris (WASM) · Geocodificación: OpenStreetMap Nominatim",
     statusInit:   "Inicializando Swiss Ephemeris…",
     statusGeo:    "Resolviendo ubicación…",
@@ -439,6 +504,18 @@ const TRANSLATIONS = {
     colSign:      "Sign",
     colLon:       "Longitude",
     colHouse:     "House",
+    dasaTitle:    "Viṁśottarī Daśā",
+    colPlanet:    "Planet",
+    colAge:       "Age",
+    colStart:     "Start",
+    colEnd:       "End",
+    dasaMoonIn:   "Moon in",
+    dasaLordLbl:  "lord",
+    dasaBack:     "← Mahādaśās",
+    dasaAdOf:     "Antardaśās of",
+    dasaHint:     "Click a mahādaśā to see its antardaśās.",
+    DASHA_NAMES: { Su:"Sun", Mo:"Moon", Ma:"Mars", Ra:"Rahu", Ju:"Jupiter",
+                   Sa:"Saturn", Me:"Mercury", Ke:"Ketu", Ve:"Venus" },
     footer:       "Beta Version · Calculations with Swiss Ephemeris (WASM) · Geocoding: OpenStreetMap Nominatim",
     statusInit:   "Initializing Swiss Ephemeris…",
     statusGeo:    "Resolving location…",
@@ -486,6 +563,7 @@ function applyLang() {
   });
   $('btnLangEs').classList.toggle('lang-active', lang === 'es');
   $('btnLangEn').classList.toggle('lang-active', lang === 'en');
+  if (dashaData) renderDasha();
 }
 
 window.setLang = function(l) { lang = l; applyLang(); };
@@ -540,6 +618,57 @@ function houseFromAsc(ascSi, pSi) {
 }
 function nakshatraOf(lon) {
   return NAKSHATRA_NAMES[Math.min(26, Math.max(0, Math.floor(norm360(lon) / DEG_PER_NAK)))];
+}
+
+/* =========================================================
+   VIMSHOTTARI DASHA
+   Reproduces the classical scheme: the first mahadasha lord is
+   the lord of the Moon's janma-nakshatra, prorated by the degrees
+   already traversed; antardashas follow the (Y_md x Y_ad)/120 rule.
+   One Vimshottari year = one sidereal year (365.25636 days).
+   The Moon longitude is taken without the deltaT correction
+   (jd_ut passed as ephemeris time) to match classical tables.
+   ========================================================= */
+const DASHA_ORDER = ["Ke","Ve","Su","Mo","Ma","Ra","Ju","Sa","Me"];
+const DASHA_YEARS = { Ke:7, Ve:20, Su:6, Mo:10, Ma:7, Ra:18, Ju:16, Sa:19, Me:17 };
+const DASHA_YEAR_MS = 365.25636 * 86400000;
+
+function computeVimshottari(moonLon, birthMs) {
+  const lon  = norm360(moonLon);
+  const nak  = Math.min(26, Math.floor(lon / DEG_PER_NAK));
+  const lord = DASHA_ORDER[nak % 9];
+  const fracElapsed  = (lon - nak * DEG_PER_NAK) / DEG_PER_NAK;
+  const elapsedYears = DASHA_YEARS[lord] * fracElapsed;
+  const idx = DASHA_ORDER.indexOf(lord);
+
+  const mds = [];
+  let ms  = birthMs - elapsedYears * DASHA_YEAR_MS;
+  let age = -elapsedYears;
+  for (let i = 0; i < 9; i++) {
+    const abv = DASHA_ORDER[(idx + i) % 9];
+    const end = ms + DASHA_YEARS[abv] * DASHA_YEAR_MS;
+    mds.push({ abv, ageStart: age, startMs: ms, endMs: end });
+    age += DASHA_YEARS[abv];
+    ms = end;
+  }
+  return { nak, lord, mds };
+}
+
+function computeAntardashas(md) {
+  const idx   = DASHA_ORDER.indexOf(md.abv);
+  const total = md.endMs - md.startMs;
+  const ads = [];
+  let ms  = md.startMs;
+  let age = md.ageStart;
+  for (let i = 0; i < 9; i++) {
+    const sub  = DASHA_ORDER[(idx + i) % 9];
+    const frac = DASHA_YEARS[sub] / 120;
+    const end  = (i === 8) ? md.endMs : ms + total * frac;
+    ads.push({ abv: sub, ageStart: age, startMs: ms, endMs: end });
+    age += DASHA_YEARS[md.abv] * frac;
+    ms = end;
+  }
+  return ads;
 }
 
 /* =========================================================
@@ -705,9 +834,11 @@ function computeUTCOffset(tzName, Y, M, D, h, m) {
 // Fallback: approximate offset from longitude (±1 hour error possible).
 function approxOffset(lon) { return Math.round(lon / 15); }
 
+let lastBirthMs = 0;
 function localToJD(Y, M, D, h, m, tzOffsetHours) {
   const dt = new Date(Date.UTC(Y, M - 1, D, 0, 0, 0));
-  dt.setUTCMinutes(dt.getUTCMinutes() + Math.round((h + m/60 - tzOffsetHours) * 60));
+  dt.setUTCSeconds(dt.getUTCSeconds() + Math.round((h + m/60 - tzOffsetHours) * 3600));
+  lastBirthMs = dt.getTime();
   const hh = dt.getUTCHours() + dt.getUTCMinutes()/60 + dt.getUTCSeconds()/3600;
   return swe.julday(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), hh);
 }
@@ -729,6 +860,62 @@ function parseDate(str) {
    ========================================================= */
 const $ = id => document.getElementById(id);
 const statusEl = $('status'), geoOut = $('geoOut');
+
+/* ---- Dasha rendering ---- */
+let dashaData = null;        // { nak, lord, mds }
+let dashaView = { level: 'md', mdIndex: 0 };
+
+const fmtDashaDate = ms => new Date(ms).toISOString().slice(0, 10);
+const dashaName = abv => TRANSLATIONS[lang].DASHA_NAMES[abv] ?? abv;
+
+function renderDasha() {
+  if (!dashaData) return;
+  const tbody = $('dasaTable').querySelector('tbody');
+  const now = Date.now();
+  const inMD = dashaView.level === 'md';
+  const rows = inMD ? dashaData.mds
+                    : computeAntardashas(dashaData.mds[dashaView.mdIndex]);
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const cur = (now >= r.startMs && now < r.endMs) ? ' dasha-current' : '';
+    return `<tr class="${inMD ? 'clickable' : ''}${cur}" data-idx="${i}">
+      <td class="num">${i + 1}</td>
+      <td class="body-name">${dashaName(r.abv)}</td>
+      <td class="num">${r.ageStart.toFixed(1)}</td>
+      <td>${fmtDashaDate(r.startMs)}</td>
+      <td>${fmtDashaDate(r.endMs)}</td>
+    </tr>`;
+  }).join('');
+
+  if (inMD) {
+    tbody.querySelectorAll('tr.clickable').forEach(tr =>
+      tr.addEventListener('click', () => {
+        dashaView = { level: 'ad', mdIndex: +tr.dataset.idx };
+        renderDasha();
+      }));
+  }
+
+  $('dasaMeta').innerHTML = inMD
+    ? `${t('dasaMoonIn')} <b>${NAKSHATRA_NAMES[dashaData.nak]}</b> `
+      + `(${t('dasaLordLbl')}: ${dashaName(dashaData.lord)})`
+    : `${t('dasaAdOf')} <b>${dashaName(dashaData.mds[dashaView.mdIndex].abv)}</b> `
+      + `[${dashaView.mdIndex + 1}]`;
+
+  const back = $('dasaBack');
+  back.style.display = inMD ? 'none' : 'inline';
+  back.textContent = t('dasaBack');
+  $('dasaNote').textContent = inMD ? t('dasaHint') : '';
+
+  const ths = $('dasaTable').querySelectorAll('thead th');
+  ['colPlanet','colAge','colStart','colEnd'].forEach((k, i) => {
+    ths[i + 1].textContent = t(k);
+  });
+}
+
+$('dasaBack').addEventListener('click', () => {
+  dashaView = { level: 'md', mdIndex: 0 };
+  renderDasha();
+});
 
 async function ensureCoords() {
   const latIn = parseFloat($('lat').value);
@@ -789,6 +976,13 @@ async function run() {
     statusEl.textContent = t('statusCalc');
     const chart = calculateChart(jd, geo.lat, geo.lon);
     const nav   = navamsaChart(chart.planets);
+
+    // Vimshottari dasha: sidereal Moon without deltaT (jd_ut as ephemeris time)
+    const moonDasha = swe.calc(jd, swe.SE_MOON,
+                               swe.SEFLG_SWIEPH | swe.SEFLG_SIDEREAL).longitude;
+    dashaData = computeVimshottari(moonDasha, lastBirthMs);
+    dashaView = { level: 'md', mdIndex: 0 };
+    renderDasha();
 
     // 7. Render
     $('rasiChart').innerHTML    = buildSouthIndianSVG(chart.planets, chart.ascSi);
