@@ -1,0 +1,44 @@
+# Dependencias y compilación (Java)
+*.class
+*.jar
+*.war
+*.ear
+target/
+build/
+out/
+.gradle/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+.project
+.classpath
+.settings/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Variables de entorno
+.env
+.env.local
+
+# Compresión
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Node (si usas algún build tool)
+node_modules/
+
+# Caché
+.cache/
+*.tmp
+
