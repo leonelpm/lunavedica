@@ -77,11 +77,11 @@
   /* ---- Two-column header ---- */
   .top {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr);
     gap: 2.5rem;
     align-items: start;
   }
-  .intro p { margin: 0 0 0.85rem; color: var(--ink-body); }
+  .intro p { margin: 0 0 0.85rem; color: var(--ink-body); text-align: justify; }
   .intro b { color: var(--ink); }
 
   /* ---- Form ---- */
@@ -103,7 +103,7 @@
     border-radius: 6px;
     color: var(--ink);
     padding: 0.5rem 0.6rem;
-    font-size: 0.95rem;
+    font-size: 0.86rem;
     font-family: inherit;
   }
   /* Prevent iOS auto-zoom on focus */
@@ -113,11 +113,11 @@
   input:focus, select:focus { outline: none; border-color: var(--field-focus); }
   input.invalid { border-color: #c0392b; }
 
-  /* ---- Calculate button — small, right-aligned ---- */
+  /* ---- Calculate button — small, left-aligned below Longitud ---- */
   .btn-row {
     grid-column: 1 / -1;
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
     margin-top: 0.3rem;
   }
   button.primary {
@@ -130,9 +130,18 @@
     padding: 0.42rem 1rem;
     font-size: 0.88rem;
     font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   button.primary:hover:not(:disabled) { background: #e9ebef; }
   button:disabled { opacity: 0.55; cursor: wait; }
+
+  .input-with-btn {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .input-with-btn input { flex: 1; }
 
   .geo-out {
     grid-column: 1 / -1;
@@ -171,9 +180,9 @@
   }
   table {
     width: 100%;
-    height: 100%;
+    height: auto;
     border-collapse: collapse;
-    font-size: 0.86rem;
+    font-size: 0.72rem;
     table-layout: fixed;
   }
   thead th {
@@ -181,12 +190,12 @@
     color: var(--ink-dim);
     font-weight: 600;
     text-align: left;
-    padding: 0.35rem 0.6rem;
+    padding: 0.22rem 0.5rem;
     border-bottom: 1px solid var(--table-rule);
     white-space: nowrap;
   }
   tbody td {
-    padding: 0.2rem 0.6rem;
+    padding: 0.12rem 0.5rem;
     border-bottom: 1px solid var(--table-rule);
     vertical-align: middle;
     white-space: nowrap;
@@ -288,11 +297,14 @@
             <span data-i18n="labelLon">Longitud</span>
             <span style="font-weight:400;color:var(--ink-dim)" data-i18n="optLabel"> (opcional)</span>
           </label>
-          <input id="lon" type="number" step="0.0001" data-i18n-ph="phCoord" placeholder="auto">
+          <div class="input-with-btn">
+            <input id="lon" type="number" step="0.0001" data-i18n-ph="phCoord" placeholder="auto">
+            <button id="calcBtn" class="primary" data-i18n="calcBtnLabel">Calcular carta</button>
+          </div>
         </div>
 
         <div class="btn-row">
-          <button id="calcBtn" class="primary" data-i18n="calcBtnLabel">Calcular carta</button>
+          <button id="resetBtn" class="primary" data-i18n="resetBtnLabel">Restablecer</button>
         </div>
 
         <div id="geoOut" class="geo-out"></div>
@@ -364,7 +376,8 @@ const TRANSLATIONS = {
     labelLat:     "Latitud",
     labelLon:     "Longitud",
     phCoord:      "auto",
-    calcBtnLabel: "Calcular carta",
+    calcBtnLabel:  "Calcular carta",
+    resetBtnLabel: "Restablecer",
     rasiTitle:    "Rasi (D1)",
     navamsaTitle: "Navamsa (D9)",
     posTitle:     "Posiciones Planetarias",
@@ -417,7 +430,8 @@ const TRANSLATIONS = {
     labelLat:     "Latitude",
     labelLon:     "Longitude",
     phCoord:      "auto",
-    calcBtnLabel: "Calculate Chart",
+    calcBtnLabel:  "Calculate Chart",
+    resetBtnLabel: "Reset",
     rasiTitle:    "Rasi (D1)",
     navamsaTitle: "Navamsa (D9)",
     posTitle:     "Planetary Positions",
@@ -811,7 +825,21 @@ async function run() {
   }
 }
 
+function resetForm() {
+  $('city').value     = '';
+  $('date').value     = '15/05/1990';
+  $('time').value     = '14:30';
+  $('utcOffset').value = '';
+  $('lat').value      = '';
+  $('lon').value      = '';
+  $('date').classList.remove('invalid');
+  geoOut.textContent  = '';
+  geoOut.classList.remove('err');
+  statusEl.textContent = '';
+}
+
 $('calcBtn').addEventListener('click', run);
+$('resetBtn').addEventListener('click', resetForm);
 $('city').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 $('date').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 
