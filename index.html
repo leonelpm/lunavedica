@@ -514,7 +514,7 @@ const TRANSLATIONS = {
     dasaHint:     "Haz clic en una mahādaśā para ver sus antardaśās.",
     balaTitle:    "Śaḍbala",
     balaSub:      "Fuerza planetaria (% del mínimo requerido)",
-    balaNote:     "Método de B. V. Raman. Un planeta se considera fuerte cuando alcanza el 100 % de su Śaḍbala mínimo (línea de referencia). Valor mostrado: rūpas · % del mínimo.",
+    balaNote:     "Método de Jagannātha Hora. Un planeta se considera fuerte cuando alcanza el 100 % de su Śaḍbala mínimo (línea de referencia). Valor mostrado: rūpas · % del mínimo.",
     DASHA_NAMES: { Su:"Sol", Mo:"Luna", Ma:"Marte", Ra:"Rahu", Ju:"Júpiter",
                    Sa:"Saturno", Me:"Mercurio", Ke:"Ketu", Ve:"Venus" },
     footer:       "Versión Beta · Cálculos con Swiss Ephemeris (WASM) · Geocodificación: OpenStreetMap Nominatim",
@@ -583,7 +583,7 @@ const TRANSLATIONS = {
     dasaHint:     "Click a mahādaśā to see its antardaśās.",
     balaTitle:    "Śaḍbala",
     balaSub:      "Planetary strength (% of required minimum)",
-    balaNote:     "B. V. Raman's method. A planet is considered strong when it reaches 100 % of its minimum Śaḍbala (reference line). Value shown: rūpas · % of minimum.",
+    balaNote:     "Jagannātha Hora method. A planet is considered strong when it reaches 100 % of its minimum Śaḍbala (reference line). Value shown: rūpas · % of minimum.",
     DASHA_NAMES: { Su:"Sun", Mo:"Moon", Ma:"Mars", Ra:"Rahu", Ju:"Jupiter",
                    Sa:"Saturn", Me:"Mercury", Ke:"Ketu", Ve:"Venus" },
     footer:       "Beta Version · Calculations with Swiss Ephemeris (WASM) · Geocoding: OpenStreetMap Nominatim",
@@ -751,303 +751,200 @@ function computeAntardashas(md) {
    which match TRANSLATIONS.DASHA_NAMES for localized labels.
    ========================================================= */
 const SHADBALA = (function () {
-  const PLANETS = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"];
-  const ABBR = { Sun:"Su", Moon:"Mo", Mars:"Ma", Mercury:"Me", Jupiter:"Ju", Venus:"Ve", Saturn:"Sa" };
-  const SHASHTI_PER_RUPA = 60.0;
+  /* JHora-method Śaḍbala — ported from PyJHora (PVR Narasimha Rao's engine) and
+     validated component-by-component against Jagannātha Hora's own output.
+     All values are in ṣaṣṭiāṁśas. Sub-balas: Sthāna, Dig, Kāla, Cheṣṭā,
+     Naisargika, Drik. Cheṣṭā uses Sūrya-Siddhānta mean longitudes (Ujjain 1900
+     epoch); Ayana uses the classical declination with N/S sign per planet. */
+  const PL = ['Su','Mo','Ma','Me','Ju','Ve','Sa'];
+  const IDX = {Su:0,Mo:1,Ma:2,Me:3,Ju:4,Ve:5,Sa:6};
+  const NAIS = {Su:60.0,Mo:51.43,Ma:17.14,Me:25.70,Ju:34.28,Ve:42.85,Sa:8.57};
+  const MINR = {Su:5,Mo:6,Ma:5,Me:7,Ju:6.5,Ve:5.5,Sa:5};
+  const DEBIL = {Su:190,Mo:213,Ma:118,Me:345,Ju:275,Ve:177,Sa:20};
+  const OWNER = [2,5,3,1,0,3,5,2,4,6,6,4];          // sign -> planet idx
+  const MOOLA = [4,1,0,5,8,6,10];                   // planet idx -> moolatrikona sign
+  const NFR = [[1,2,4],[0,3],[0,1,4],[0,5],[0,1,2],[3,6],[3,5]];   // BPHS natural friends
+  const NEN = [[5,6],[],[3],[1],[3,5],[0,1],[0,1,2]];              // BPHS natural enemies
+  const norm = d => ((d % 360) + 360) % 360;
+  const sidx = d => Math.floor(norm(d) / 30);
+  const isodd = i => ((i + 1) % 2) === 1;
 
-  const NAISARGIKA = { Sun:60.0, Moon:51.43, Venus:42.85, Jupiter:34.28, Mercury:25.70, Mars:17.14, Saturn:8.57 };
-  const MIN_RUPAS = { Sun:5.0, Moon:6.0, Mars:5.0, Mercury:7.0, Jupiter:6.5, Venus:5.5, Saturn:5.0 };
+  function navsign(d){const s=sidx(d),pos=norm(d)%30,n=Math.floor(pos/(30/9));
+    const st=(s%3===0)?s:((s%3===1)?(s+8)%12:(s+4)%12); return (st+n)%12;}
+  function horasign(l,s){const f=(l%30)<15; return isodd(s)?(f?4:3):(f?3:4);}
+  function dreksign(l,s){const d=l%30; return d<10?s:(d<20?(s+4)%12:(s+8)%12);}
+  function saptsign(l,s){const part=Math.floor((l%30)/(30/7));const st=isodd(s)?s:(s+6)%12;return (st+part)%12;}
+  function dwadsign(l,s){return (s+Math.floor((l%30)/2.5))%12;}
+  function trimsign(l,s){const d=l%30,o=isodd(s);
+    if(o)return d<5?0:d<10?10:d<18?8:d<25?2:6;
+    return d<5?6:d<10?2:d<18?8:d<25?10:0;}
+  function vargsign(L,p,dcf){const l=L[p],s=sidx(l);
+    if(dcf===1)return s; if(dcf===2)return horasign(l,s); if(dcf===3)return dreksign(l,s);
+    if(dcf===7)return saptsign(l,s); if(dcf===9)return navsign(l);
+    if(dcf===12)return dwadsign(l,s); return trimsign(l,s);}
 
-  // Debilitation (nīca) points, sidereal 0–360 (Aries 0°, …, Pisces 330°).
-  const DEBIL = { Sun:190.0, Moon:213.0, Mars:118.0, Mercury:345.0, Jupiter:275.0, Venus:177.0, Saturn:20.0 };
-
-  const MALEFICS = new Set(["Sun","Mars","Saturn"]);
-  const BENEFICS = new Set(["Moon","Mercury","Jupiter","Venus"]);
-
-  const SIGN_LORDS = {0:"Su",1:"Ve",2:"Me",3:"Mo",4:"Su",5:"Me",6:"Ve",7:"Ma",8:"Ju",9:"Sa",10:"Sa",11:"Ju"};
-  const MOOLA = { Su:4, Mo:1, Ma:0, Me:5, Ju:8, Ve:6, Sa:10 };
-  const OWN = { Su:[4], Mo:[3], Ma:[0,7], Me:[2,5], Ju:[8,11], Ve:[1,6], Sa:[9,10] };
-  const REL = {
-    Su:{friends:new Set(["Mo","Ma","Ju"]),neutrals:new Set(["Me"]),enemies:new Set(["Ve","Sa"])},
-    Mo:{friends:new Set(["Su","Ma","Ju"]),neutrals:new Set(["Me","Ve","Sa"]),enemies:new Set()},
-    Ma:{friends:new Set(["Su","Mo","Ju"]),neutrals:new Set(["Sa"]),enemies:new Set(["Me","Ve"])},
-    Me:{friends:new Set(["Ve","Sa"]),neutrals:new Set(["Su","Mo"]),enemies:new Set(["Ma","Ju"])},
-    Ju:{friends:new Set(["Su","Mo","Ma"]),neutrals:new Set(["Ve"]),enemies:new Set(["Me","Sa"])},
-    Ve:{friends:new Set(["Me","Sa"]),neutrals:new Set(["Mo","Ju"]),enemies:new Set(["Su","Ma"])},
-    Sa:{friends:new Set(["Me","Ve"]),neutrals:new Set(["Mo","Ma"]),enemies:new Set(["Su","Ju"])},
-  };
-  const SAPTA_PTS = { moolatrikona:45.0, own:30.0, friend:15.0, neutral:7.5, enemy:3.75 };
-
-  const MEAN_MOTION = { Mars:0.5238889, Mercury:4.0922222, Jupiter:0.0830556, Venus:1.6019444, Saturn:0.0333333 };
-  const CHESTA_VIRUPAS = { Vakra:60.0, Anuvakra:30.0, Vikala:15.0, Mandatara:15.0, Manda:30.0, Sama:7.5, Chara:45.0, Atichara:30.0 };
-
-  const norm = d => ((d % 360.0) + 360.0) % 360.0;
-  const signIdxL = d => Math.floor(norm(d) / 30);
-  const isOdd = idx => ((idx + 1) % 2) === 1;
-  const degInSign = d => ((d % 30.0) + 30.0) % 30.0;
-
-  function navamsaSign(deg) {
-    const sign = signIdxL(deg);
-    const pos = norm(deg) % 30.0;
-    const num = Math.floor(pos / (30.0 / 9.0));
-    const movable = new Set([0,3,6,9]), fixed = new Set([1,4,7,10]);
-    let start;
-    if (movable.has(sign)) start = sign;
-    else if (fixed.has(sign)) start = (sign + 8) % 12;
-    else start = (sign + 4) % 12;
-    return (start + num) % 12;
-  }
-  function horaSign(lon, sign) {
-    const first = degInSign(lon) < 15.0;
-    if (isOdd(sign)) return first ? 4 : 3;
-    return first ? 3 : 4;
-  }
-  function drekkanaSign(lon, sign) {
-    const d = degInSign(lon);
-    if (d < 10.0) return sign;
-    if (d < 20.0) return (sign + 4) % 12;
-    return (sign + 8) % 12;
-  }
-  function saptamsaSign(lon, sign) {
-    const part = Math.floor(degInSign(lon) / (30.0 / 7.0));
-    const start = isOdd(sign) ? sign : (sign + 6) % 12;
-    return (start + part) % 12;
-  }
-  function dwadasamsaSign(lon, sign) {
-    const part = Math.floor(degInSign(lon) / (30.0 / 12.0));
-    return (sign + part) % 12;
-  }
-  function trimsamsaSign(lon, sign) {
-    const d = degInSign(lon), odd = isOdd(sign);
-    if (odd) {
-      if (d < 5) return 0; if (d < 10) return 10; if (d < 18) return 8; if (d < 25) return 2; return 6;
+  // Compound (temporal × natural) relationship matrix from the rāśi chart.
+  function compoundMatrix(L){
+    const rs={}; PL.forEach(p=>{rs[p]=sidx(L[p]);});
+    const TF=[1,2,3,9,10,11];                         // 2,3,4,10,11,12th = temporal friend
+    const cr=Array.from({length:7},()=>[0,0,0,0,0,0,0]);
+    for(let a=0;a<7;a++) for(let b=0;b<7;b++){
+      if(a===b)continue;
+      const off=(((rs[PL[b]]-rs[PL[a]])%12)+12)%12;
+      const tf=TF.indexOf(off)>=0;
+      const nf=NFR[a].indexOf(b)>=0, ne=NEN[a].indexOf(b)>=0;
+      let cat;
+      if(nf&&tf)cat=4;                                 // great friend
+      else if((nf&&!tf)||(ne&&tf))cat=2;               // neutral
+      else if(!nf&&!ne&&tf)cat=3;                      // friend
+      else if(!nf&&!ne&&!tf)cat=1;                     // enemy
+      else if(ne&&!tf)cat=0;                           // great enemy
+      else cat=2;
+      cr[a][b]=cat;
     }
-    if (d < 5) return 6; if (d < 10) return 2; if (d < 18) return 8; if (d < 25) return 10; return 0;
+    return cr;
   }
-  function signDignity(planet, sign) {
-    const p = ABBR[planet] || planet;
-    if (MOOLA[p] === sign) return SAPTA_PTS.moolatrikona;
-    if ((OWN[p] || []).includes(sign)) return SAPTA_PTS.own;
-    const lord = SIGN_LORDS[sign], rel = REL[p];
-    if (rel.friends.has(lord)) return SAPTA_PTS.friend;
-    if (rel.enemies.has(lord)) return SAPTA_PTS.enemy;
-    return SAPTA_PTS.neutral;
+  const CRPTS={0:1.875,1:3.75,2:7.5,3:15,4:22.5};
+  function saptavarga(L,cr){
+    const out={};
+    for(let a=0;a<7;a++){
+      const p=PL[a]; let tot=0;
+      [1,2,3,7,9,12,30].forEach(dcf=>{
+        const sgn=vargsign(L,p,dcf), owner=OWNER[sgn];
+        if(dcf===1&&sgn===MOOLA[a])tot+=45;            // moolatrikona only in D1
+        else if(owner===a)tot+=30;                     // own sign
+        else tot+=CRPTS[cr[a][owner]];
+      });
+      out[p]=tot;
+    }
+    return out;
   }
-  function uchchaBala(p, lon) {
-    let diff = norm(lon - DEBIL[p]);
-    if (diff > 180) diff = 360 - diff;
-    return diff / 3.0;
-  }
-  function ojayugmaBala(p, lon) {
-    const rOdd = isOdd(signIdxL(lon)), nOdd = isOdd(navamsaSign(lon));
-    let b = 0;
-    if (p === "Moon" || p === "Venus") { if (!rOdd) b += 15; if (!nOdd) b += 15; }
-    else { if (rOdd) b += 15; if (nOdd) b += 15; }
+  function uchcha(p,L){let d=Math.abs(L[p]-DEBIL[p])%360; if(d>180)d=360-d; return d/3;}
+  function ojayugma(p,L){
+    const ro=isodd(sidx(L[p])),no=isodd(navsign(L[p])); let b=0;
+    if(p==='Mo'||p==='Ve'){if(!ro)b+=15; if(!no)b+=15;}
+    else{if(ro)b+=15; if(no)b+=15;}
     return b;
   }
-  const houseFromAscL = (lon, asc) => Math.floor(norm(lon - asc) / 30.0) + 1;
-  function kendraBala(lon, asc) {
-    const h = houseFromAscL(lon, asc);
-    if (h === 1 || h === 4 || h === 7 || h === 10) return 60;
-    if (h === 2 || h === 5 || h === 8 || h === 11) return 30;
+  function kendra(p,L,ascSign){                        // whole-sign house from asc sign
+    const h=((sidx(L[p])-ascSign)%12+12)%12+1;
+    if(h===1||h===4||h===7||h===10)return 60;
+    if(h===2||h===5||h===8||h===11)return 30;
     return 15;
   }
-  const drekkanaNum = lon => Math.floor((norm(lon) % 30.0) / 10.0) + 1;
-  function drekkanaBala(p, lon) {
-    const d = drekkanaNum(lon);
-    if ((p === "Sun" || p === "Mars" || p === "Jupiter") && d === 1) return 15;
-    if ((p === "Mercury" || p === "Saturn") && d === 2) return 15;
-    if ((p === "Moon" || p === "Venus") && d === 3) return 15;
+  function dreshkon(p,L){
+    const d=Math.floor((norm(L[p])%30)/10)+1;
+    if((p==='Su'||p==='Ma'||p==='Ju')&&d===1)return 15;
+    if((p==='Me'||p==='Sa')&&d===2)return 15;
+    if((p==='Mo'||p==='Ve')&&d===3)return 15;
     return 0;
   }
-  function saptavargajaBala(p, lon) {
-    const rs = signIdxL(lon);
-    const vs = [rs, horaSign(lon,rs), drekkanaSign(lon,rs), saptamsaSign(lon,rs),
-               navamsaSign(lon), dwadasamsaSign(lon,rs), trimsamsaSign(lon,rs)];
-    return vs.reduce((s, v) => s + signDignity(p, v), 0);
+  const PWL={Su:4,Ma:4,Ju:7,Me:7,Mo:10,Ve:10,Sa:1};
+  function dig(p,L,asc){                               // arc from the powerless cusp / 3
+    const cusp=norm(asc+(PWL[p]-1)*30);
+    let d=Math.abs(L[p]-cusp)%360; if(d>180)d=360-d; return d/3;
   }
-  function sthanaBala(lons, asc) {
-    const out = {};
-    for (const p of PLANETS) {
-      const lon = lons[p];
-      out[p] = uchchaBala(p,lon) + saptavargajaBala(p,lon) + ojayugmaBala(p,lon)
-             + kendraBala(lon,asc) + drekkanaBala(p,lon);
-    }
+  function ayana(p,L,ayan){                            // classical kranti, N/S per planet
+    const sayana=norm(L[p]+ayan);
+    let decl=Math.asin(Math.sin(24*Math.PI/180)*Math.sin(sayana*Math.PI/180))*180/Math.PI;
+    if(p==='Mo'||p==='Sa')decl=-decl;
+    let ab=(24+decl)*1.25;
+    if(p==='Su')ab*=2;                                 // Sun's Cheṣṭā = its Ayana, folded in
+    return ab;
+  }
+  // Mean longitudes — Sūrya-Siddhānta, Ujjain 1900 epoch (PyJHora).
+  const MEAN_POS=[257.4568,-1,270.22,164,220.04,328.51,236.74];
+  const MEAN_SPD=[0.9856,-1,0.524,4.0923,0.0831,1.60215,0.033439];
+  const MEAN_CORR=[[1,0,0],[1,0,0],[1,0,0],[1,6.67,-0.00133],[-1,3.3,0.0067],[-1,5,0.0001],[1,5,0.001]];
+  const EPOCH_JD=2415020.270833;                       // 1900-01-01 00:00 Ujjain local, in UT
+  function meanLong(idx,jd,year){
+    const c=MEAN_CORR[idx];
+    return norm(MEAN_POS[idx]+(jd-EPOCH_JD)*MEAN_SPD[idx]+c[0]*(c[1]+c[2]*(year-1900)));
+  }
+  function chesta(p,L,jd,year){
+    if(p==='Su'||p==='Mo')return 0;                    // via Ayana / Pakṣa (in Kāla); 0 in total
+    let sm=meanLong(0,jd,year),ml=meanLong(IDX[p],jd,year),seeg=sm;
+    if(p==='Me'||p==='Ve'){seeg=ml; ml=sm;}            // inferiors: own seeghrocca
+    const ave=0.5*(L[p]+ml); let red=Math.abs(seeg-ave); if(red>180)red=360-red;
+    return red/3;
+  }
+  function paksha(L,benefics){
+    let d=Math.abs(L.Mo-L.Su)%360; if(d>180)d=360-d;
+    const pb=d/3, out={};
+    PL.forEach(p=>{let v=(benefics.indexOf(p)>=0)?pb:(60-pb); if(p==='Mo')v*=2; out[p]=v;});
+    return out;
+  }
+  function nathonnata(tobh,sunrise,sunset){
+    const noon=(sunrise+sunset)/2, td=60*(1-Math.abs(tobh-noon)/12), out={};
+    ['Su','Ju','Ve'].forEach(p=>{out[p]=td;});
+    ['Mo','Ma','Sa'].forEach(p=>{out[p]=60-td;});
+    out.Me=60; return out;
+  }
+  function tribhaga(tobh,sunrise,sunset){
+    const out={}; PL.forEach(p=>{out[p]=0;}); out.Ju=60;
+    const inc=(sunset-sunrise)/3;
+    if(tobh>=sunrise&&tobh<sunrise+inc)out.Me=60;
+    else if(tobh>=sunrise+inc&&tobh<sunrise+2*inc)out.Su=60;
+    else if(tobh>=sunrise+2*inc&&tobh<sunset)out.Sa=60;
+    else if(tobh>sunset&&tobh<sunset+inc)out.Mo=60;
+    else if(tobh>=sunset+inc||tobh<sunrise-inc)out.Ve=60;
+    else out.Ma=60;
+    return out;
+  }
+  function drishti(k,aspIdx){                          // JHora sphuta drishti (special aspects baked in)
+    k=norm(k); let v=0;
+    if(k>=30&&k<60)v=0.5*(k-30);
+    else if(k>=60&&k<90){v=(k-60)+15; if(aspIdx===6)v+=45;}        // Saturn 3rd
+    else if(k>=90&&k<120){v=0.5*(120-k)+30; if(aspIdx===2)v+=15;}  // Mars 4th
+    else if(k>=120&&k<150){v=150-k; if(aspIdx===4)v+=30;}          // Jupiter 5th
+    else if(k>=150&&k<180)v=2*(k-150);
+    else if(k>=180&&k<300){v=0.5*(300-k);
+      if(aspIdx===2&&k>=210&&k<240)v+=15;                          // Mars 8th
+      if(aspIdx===4&&k>=240&&k<270)v+=30;                          // Jupiter 9th
+      if(aspIdx===6&&k>=270&&k<300)v+=45;}                         // Saturn 10th
+    return v;
+  }
+  function drik(L,benefics){
+    const out={};
+    PL.forEach(p1=>{
+      let pin=0;
+      PL.forEach(p2=>{ if(p1===p2)return;
+        const v=drishti(norm(L[p1]-L[p2]),IDX[p2]);
+        pin+=(benefics.indexOf(p2)>=0?1:-1)*v;
+      });
+      out[p1]=pin/4;
+    });
     return out;
   }
 
-  const POWERLESS_HOUSE = { Sun:4, Mars:4, Jupiter:7, Mercury:7, Moon:10, Venus:10, Saturn:1 };
-  const houseMidLon = (house, asc) => norm(norm(asc + (house-1)*30.0) + 15.0);
-  function digBala(lons, asc) {
-    const out = {};
-    for (const p of PLANETS) {
-      let diff = norm(lons[p] - houseMidLon(POWERLESS_HOUSE[p], asc));
-      if (diff > 180) diff = 360 - diff;
-      out[p] = diff / 3.0;
-    }
-    return out;
-  }
-
-  const timeToGhatis = (h,m,s) => (h*60.0+m+s/60.0)*60.0/(24.0*60.0);
-  function nathonnathaFromTime(lt) {
-    let t = timeToGhatis(lt[0],lt[1],lt[2]);
-    if (t > 30) t = 60 - t;
-    const natha = 2*(30 - t);
-    const b = {}; PLANETS.forEach(p=>b[p]=0);
-    ["Moon","Mars","Saturn"].forEach(p=>b[p]=natha);
-    ["Sun","Jupiter","Venus"].forEach(p=>b[p]=60-natha);
-    b.Mercury = 60;
-    return b;
-  }
-  function tribhagaBala(lt, isDay) {
-    const b = {}; PLANETS.forEach(p=>b[p]=0);
-    if (!lt || isDay === null) return b;
-    const hour = lt[0] + lt[1]/60.0 + lt[2]/3600.0;
-    let lord = null;
-    if (isDay) {
-      if (hour >= 6 && hour < 18) lord = hour < 10 ? "Mercury" : hour < 14 ? "Sun" : "Saturn";
-    } else if (hour >= 18 || hour < 6) {
-      const rel = hour >= 18 ? hour - 18 : hour + 6;
-      lord = rel < 4 ? "Moon" : rel < 8 ? "Venus" : "Mars";
-    }
-    if (lord) b[lord] = 60;
-    b.Jupiter = 60;
-    return b;
-  }
-  function pakshaBala(sun, moon) {
-    let d = norm(moon - sun); if (d > 180) d = 360 - d;
-    const subha = d/3.0, papa = 60 - subha;
-    const b = {};
-    for (const p of PLANETS) {
-      let v = BENEFICS.has(p) ? subha : papa;
-      if (p === "Moon") v *= 2;
-      b[p] = v;
-    }
-    return b;
-  }
-
-  // Ayana Bala (declination strength). Uses the classical formula:
-  //   δ = asin(sin(ε)·sin(λ_sāyana)),  ε = 24° (Raman),  + = north.
-  // North-favouring: Sun, Mars, Mercury, Jupiter, Venus → value = ε + δ.
-  // South-favouring: Moon, Saturn → value = ε − δ.
-  // Mercury is favourable in both ayanas → value = ε + |δ|.
-  //   AyanaBala = value × 60 / (2ε)  (0–60 virūpas).
-  const OBLIQUITY = 24.0;
-  const AYANA_NORTH = new Set(["Sun","Mars","Mercury","Jupiter","Venus"]);
-  function declinationFromSayana(sayanaLon) {
-    const e = OBLIQUITY * Math.PI/180, l = sayanaLon * Math.PI/180;
-    return Math.asin(Math.sin(e) * Math.sin(l)) * 180/Math.PI;
-  }
-  function ayanaBala(lons, ayanamsa) {
-    const out = {};
-    for (const p of PLANETS) {
-      const decl = declinationFromSayana(norm(lons[p] + (ayanamsa || 0)));
-      let v;
-      if (p === "Mercury") v = OBLIQUITY + Math.abs(decl);
-      else if (AYANA_NORTH.has(p)) v = OBLIQUITY + decl;
-      else v = OBLIQUITY - decl;
-      out[p] = v * 60.0 / (2 * OBLIQUITY);
-    }
-    return out;
-  }
-
-  const canon = name => PLANETS.includes(name)
-    ? name : (Object.keys(ABBR).find(k => ABBR[k] === name) || null);
-  function kalaBala(lons, isDay, kp, ayanamsa) {
-    const paksha = pakshaBala(lons.Sun, lons.Moon);
-    const ayana = ayanaBala(lons, ayanamsa);
-    const lt = kp && kp.local_time ? kp.local_time : null;
-    let natho, tri;
-    if (lt) { natho = nathonnathaFromTime(lt); tri = tribhagaBala(lt, isDay); }
-    else {
-      natho = {}; tri = {};
-      PLANETS.forEach(p => { natho[p] = isDay == null ? 30 : 0; tri[p] = 0; });
-      if (isDay == null) natho.Mercury = 60;
-    }
-    const abda={},masa={},vara={},hora={};
-    PLANETS.forEach(p=>{abda[p]=0;masa[p]=0;vara[p]=0;hora[p]=0;});
-    if (kp) {
-      let pl;
-      pl = kp.varsha_lord ? canon(kp.varsha_lord) : null; if (PLANETS.includes(pl)) abda[pl]+=15;
-      pl = kp.masa_lord   ? canon(kp.masa_lord)   : null; if (PLANETS.includes(pl)) masa[pl]+=30;
-      pl = kp.vara_lord   ? canon(kp.vara_lord)   : null; if (PLANETS.includes(pl)) vara[pl]+=45;
-      pl = kp.hora_lord   ? canon(kp.hora_lord)   : null; if (PLANETS.includes(pl)) hora[pl]+=60;
-    }
-    const out = {};
-    for (const p of PLANETS)
-      out[p] = natho[p]+paksha[p]+tri[p]+abda[p]+masa[p]+vara[p]+hora[p]+ayana[p];
-    // The Sun's Cheṣṭā Bala equals its Ayana Bala; fold it in here so it is
-    // counted (the Cheṣṭā column leaves the Sun at 0). Effectively doubles Sun's ayana.
-    out.Sun += ayana.Sun;
-    return out;
-  }
-
-  function classifyMotion(p, lon, speed) {
-    const mean = MEAN_MOTION[p] || 0;
-    if (mean <= 0) return "Sama";
-    const ratio = Math.abs(speed)/mean;
-    const sp = degInSign(lon);
-    if (ratio < 0.10) return "Vikala";
-    if (speed < 0) return sp <= 1.0 ? "Anuvakra" : "Vakra";
-    if (ratio < 0.50) return "Mandatara";
-    if (ratio < 1.0) return "Manda";
-    if (ratio <= 1.50) return "Sama";
-    return (30 - sp) <= 1.0 ? "Atichara" : "Chara";
-  }
-  function chestaBala(lons, speeds) {
-    const out = {}; PLANETS.forEach(p=>out[p]=0);
-    for (const p of PLANETS) {
-      if (p === "Sun" || p === "Moon") continue;
-      const sp = speeds[p]; if (sp == null) continue;
-      out[p] = CHESTA_VIRUPAS[classifyMotion(p, lons[p], sp)] || 0;
-    }
-    return out;
-  }
-
-  function drishtiValue(angle) {
-    const k = norm(angle);
-    if (k < 30 || k > 300) return 0;
-    if (k < 60) return (k-30)/2.0;
-    if (k < 90) return k-45.0;
-    if (k < 120) return (120-k)/2.0+30.0;
-    if (k < 150) return 150-k;
-    if (k < 180) return (k-150)*2.0;
-    return 0.5*(300-k);
-  }
-  function drikBala(lons) {
-    const pinda = {}; PLANETS.forEach(p=>pinda[p]=0);
-    for (const a of PLANETS) for (const b of PLANETS) {
-      if (a === b) continue;
-      const v = drishtiValue(norm(lons[b]-lons[a]));
-      if (v <= 0) continue;
-      pinda[b] += (MALEFICS.has(a) ? -1 : 1) * v;
-    }
-    const out = {}; for (const p of PLANETS) out[p] = 0.25 * pinda[p];
-    return out;
-  }
-
-  function compute(lons, asc, isDay, kp, speeds, ayanamsa) {
-    speeds = speeds || {};
-    const sthana = sthanaBala(lons, asc);
-    const dig = digBala(lons, asc);
-    const kala = kalaBala(lons, isDay, kp, ayanamsa);
-    const chesta = chestaBala(lons, speeds);
-    const drik = drikBala(lons);
-    const rows = {};
-    for (const p of PLANETS) {
-      const total = sthana[p]+dig[p]+kala[p]+chesta[p]+NAISARGIKA[p]+drik[p];
-      const rupas = total/SHASHTI_PER_RUPA;
-      rows[p] = {
-        abbr: ABBR[p], total, rupas,
-        minRupas: MIN_RUPAS[p], percent: 100*rupas/MIN_RUPAS[p]
-      };
-    }
+  // inp: { L, asc, ayan, jd, year, sunrise, sunset, tobh, lords:{vara,hora,abda,masa}, waxingMoon }
+  function compute(inp){
+    const L=inp.L, asc=inp.asc, ascSign=sidx(asc);
+    const benefics=['Ju','Ve']; if(inp.waxingMoon)benefics.push('Mo');
+    const meSign=sidx(L.Me); let bc=0, mc=0;            // Mercury benefic iff alone / more benefics with it
+    PL.forEach(p=>{ if(p==='Me')return; if(sidx(L[p])===meSign){
+      const ben=(p==='Ju'||p==='Ve'||(p==='Mo'&&inp.waxingMoon)); if(ben)bc++; else mc++; }});
+    if(bc>mc)benefics.push('Me');
+    const cr=compoundMatrix(L), sapta=saptavarga(L,cr), pak=paksha(L,benefics);
+    const nat=nathonnata(inp.tobh,inp.sunrise,inp.sunset);
+    const tri=tribhaga(inp.tobh,inp.sunrise,inp.sunset), dk=drik(L,benefics);
+    const rows={};
+    PL.forEach(p=>{
+      const sth=uchcha(p,L)+sapta[p]+ojayugma(p,L)+kendra(p,L,ascSign)+dreshkon(p,L);
+      const dg=dig(p,L,asc), ay=ayana(p,L,inp.ayan);
+      let lb=0;
+      if(inp.lords.vara===p)lb+=45;
+      if(inp.lords.hora===p)lb+=60;
+      if(inp.lords.abda===p)lb+=15;
+      if(inp.lords.masa===p)lb+=30;
+      const kala=nat[p]+pak[p]+tri[p]+lb+ay, ch=chesta(p,L,inp.jd,inp.year);
+      const tot=sth+dg+kala+ch+NAIS[p]+dk[p], rupas=tot/60;
+      rows[p]={abbr:p,sthana:sth,dig:dg,kala:kala,chesta:ch,naisargika:NAIS[p],drik:dk[p],
+               total:tot,rupas:rupas,minRupas:MINR[p],percent:100*rupas/MINR[p]};
+    });
     return rows;
   }
-
-  // Kāla-Bala lords (Vāra / Hora / Varsha / Māsa) are supplied via kala_params
-  // by the caller, which derives them from sunrise-based planetary hours.
-  return { PLANETS, ABBR, compute };
+  return { compute, PLANETS: PL };
 })();
 
 /* =========================================================
@@ -1124,10 +1021,6 @@ const WEEKDAY_LORD = {0:"Sun",1:"Moon",2:"Mars",3:"Mercury",4:"Jupiter",5:"Venus
 const CHALDEAN_ORDER = ["Saturn","Jupiter","Mars","Sun","Venus","Mercury","Moon"];
 const SUN_RISE_ALT = -0.833;   // upper-limb + mean refraction (degrees)
 
-function sunSiderealLon(jd_ut) {
-  return norm360(swe.calc_ut(jd_ut, swe.SE_SUN, swe.SEFLG_SWIEPH | swe.SEFLG_SIDEREAL)[0]);
-}
-
 // Sun's geometric altitude (degrees) for an observer (lon east-positive).
 function sunAltitude(jd_ut, lat, lon) {
   const eq = swe.calc_ut(jd_ut, swe.SE_SUN, swe.SEFLG_SWIEPH | (swe.SEFLG_EQUATORIAL || 2048));
@@ -1173,18 +1066,6 @@ function localMidnightJD(Y, M, D, tzOffset) {
   return 2440587.5 + utcMs / 86400000;
 }
 
-// Sunrise (UT) that opens the Hindu day containing jdInstant.
-function vedicDaySunrise(jdInstant, lat, lon, tzOffset) {
-  const d = localCivilDate(jdInstant, tzOffset);
-  const jmid = localMidnightJD(d.Y, d.M, d.D, tzOffset);     // local 00:00 of that civil date
-  let sr = findAltCrossing(jmid, 1, lat, lon, true);
-  if (sr == null) return jmid;                               // polar day/night fallback
-  if (jdInstant < sr) sr = findAltCrossing(jmid - 1, 1, lat, lon, true) ?? sr;
-  return sr;
-}
-const vedicVaraLord = (jdInstant, lat, lon, tzOffset) =>
-  weekdayLordOfJD(vedicDaySunrise(jdInstant, lat, lon, tzOffset), tzOffset);
-
 // Sunrise-based planetary hour at birth → { varaLord, horaLord, isDay }.
 function planetaryHour(jdBirth, lat, lon, tzOffset, localHour) {
   const d = localCivilDate(jdBirth, tzOffset);
@@ -1196,8 +1077,11 @@ function planetaryHour(jdBirth, lat, lon, tzOffset, localHour) {
   if (sr0 == null || ss0 == null) {
     const vara = WEEKDAY_LORD[d.wd];
     const hora = CHALDEAN_ORDER[(CHALDEAN_ORDER.indexOf(vara) + Math.floor(localHour)) % 7];
-    return { varaLord: vara, horaLord: hora, isDay: localHour >= 6 && localHour < 18 };
+    return { varaLord: vara, horaLord: hora, isDay: localHour >= 6 && localHour < 18,
+             sunriseHour: 6, sunsetHour: 18 };
   }
+  // Sunrise/sunset as local clock hours (for Nathonnata / Tribhāga balas).
+  const sunriseHour = (sr0 - jmid) * 24, sunsetHour = (ss0 - jmid) * 24;
 
   let isDay, n, daySunrise;
   if (jdBirth >= sr0 && jdBirth < ss0) {              // daytime
@@ -1216,28 +1100,7 @@ function planetaryHour(jdBirth, lat, lon, tzOffset, localHour) {
   n = Math.max(0, Math.min(23, n));
   const vara = weekdayLordOfJD(daySunrise, tzOffset);
   const hora = CHALDEAN_ORDER[(CHALDEAN_ORDER.indexOf(vara) + n) % 7];
-  return { varaLord: vara, horaLord: hora, isDay };
-}
-
-// Most recent JD (UT) before jdBirth at which the sidereal Sun = targetDeg.
-function findSunIngressJD(jdBirth, targetDeg) {
-  const signed = lon => ((((lon - targetDeg) % 360) + 540) % 360) - 180; // (-180,180]
-  let hi = jdBirth, lo = jdBirth - 10, guard = 0;
-  while (signed(sunSiderealLon(lo)) >= 0 && guard++ < 60) lo -= 10; // walk back past the ingress
-  for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (signed(sunSiderealLon(mid)) < 0) lo = mid; else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
-
-// { varsha_lord, masa_lord } — weekday lords of the solar year / month ingress days.
-function varshaMasaLords(jdBirth, sunSidLon, lat, lon, tzOffset) {
-  const monthTarget = Math.floor(norm360(sunSidLon) / 30) * 30;
-  return {
-    varsha_lord: vedicVaraLord(findSunIngressJD(jdBirth, 0), lat, lon, tzOffset),
-    masa_lord:   vedicVaraLord(findSunIngressJD(jdBirth, monthTarget), lat, lon, tzOffset),
-  };
+  return { varaLord: vara, horaLord: hora, isDay, sunriseHour, sunsetHour };
 }
 
 /* =========================================================
@@ -1521,16 +1384,23 @@ async function run() {
     dashaView = { level: 'md', mdIndex: 0 };
     renderDasha();
 
-    // Śaḍbala (Raman): Kāla-Bala lords use the Hindu sunrise-to-sunrise day.
+    // Śaḍbala (Jagannātha Hora method). Kāla-Bala lords follow the Hindu
+    // sunrise-to-sunrise day; Abda/Māsa/Vāra all use the weekday lord, Hora the
+    // sunrise-based planetary hour. Longitudes keyed Su/Mo/… for the engine.
     const ph = planetaryHour(jd, geo.lat, geo.lon, tzOffset, h + m/60);
-    const kalaParams = {
-      local_time: [h, m, 0],
-      vara_lord: ph.varaLord,
-      hora_lord: ph.horaLord,
-      ...varshaMasaLords(jd, chart.sbLon.Sun, geo.lat, geo.lon, tzOffset)
-    };
-    balaData = SHADBALA.compute(chart.sbLon, chart.ascLon, ph.isDay,
-                                kalaParams, chart.sbSpeed, chart.ayanamsa);
+    const L = { Su: chart.sbLon.Sun, Mo: chart.sbLon.Moon, Ma: chart.sbLon.Mars,
+                Me: chart.sbLon.Mercury, Ju: chart.sbLon.Jupiter,
+                Ve: chart.sbLon.Venus, Sa: chart.sbLon.Saturn };
+    const SB_ABBR = { Sun:'Su', Moon:'Mo', Mars:'Ma', Mercury:'Me',
+                      Jupiter:'Ju', Venus:'Ve', Saturn:'Sa' };
+    const waxingMoon = norm360(chart.sbLon.Moon - chart.sbLon.Sun) <= 180;
+    balaData = SHADBALA.compute({
+      L, asc: chart.ascLon, ayan: chart.ayanamsa, jd, year: dateObj.Y,
+      sunrise: ph.sunriseHour, sunset: ph.sunsetHour, tobh: h + m/60,
+      lords: { vara: SB_ABBR[ph.varaLord], abda: SB_ABBR[ph.varaLord],
+               masa: SB_ABBR[ph.varaLord], hora: SB_ABBR[ph.horaLord] },
+      waxingMoon
+    });
     renderBala();
 
     // 7. Render
